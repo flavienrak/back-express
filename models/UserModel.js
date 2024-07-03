@@ -6,12 +6,6 @@ const userSchema = new mongooose.Schema(
       type: String,
       trim: true,
       required: true,
-      uppercase: true,
-    },
-    username: {
-      type: String,
-      trim: true,
-      required: true,
     },
     email: {
       type: String,
@@ -23,6 +17,30 @@ const userSchema = new mongooose.Schema(
     password: {
       type: String,
       required: true,
+    },
+    image: {
+      type: String,
+      trim: true,
+    },
+    views: {
+      type: [String],
+      default: [],
+    },
+    posts: {
+      type: [String],
+      default: [],
+    },
+    followers: {
+      type: [String],
+      default: [],
+    },
+    followed: {
+      type: [String],
+      default: [],
+    },
+    rejected: {
+      type: [String],
+      default: [],
     },
   },
   { timestamps: true }

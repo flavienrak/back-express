@@ -1,49 +1,300 @@
 const { isEmpty } = require("../lib/allFunctions");
-const { isEmail } = require("validator");
+const { isValidObjectId } = require("mongoose");
 
-const bcrypt = require("bcrypt");
 const UserModel = require("../models/UserModel");
+const fs = require("fs");
+const path = require("path");
+const PostModel = require("../models/PostModel");
+const MessageModel = require("../models/MessageModel");
 
 module.exports.getUsers = async (req, res) => {
   try {
-    const users = await UserModel.find();
+    const params = req.params;
+    if (isEmpty(params?.id)) {
+      return res.json({ idRequired: true });
+    }
+
+    const user = await UserModel.findById(params.id);
+    if (isEmpty(user)) {
+      return res.json({ userNotFound: true });
+    }
+
+    const users = await UserModel.find()
+      .select("-password")
+      .sort({ createdAt: -1 });
+
     return res.status(200).json({ users });
   } catch (error) {
     return res.status(500).json({ error: `${error.message}` });
   }
 };
 
-module.exports.signUp = async (req, res) => {
+module.exports.getUser = async (req, res) => {
+  try {
+    const params = req.params;
+    if (isEmpty(params?.id)) {
+      return res.json({ idRequired: true });
+    }
+
+    const user = await UserModel.findById(params.id);
+    const { password, ...userWithoutPassword } = user._doc;
+
+    return res.status(200).json({ user: userWithoutPassword });
+  } catch (error) {
+    return res.status(500).json({ error: `${error.message}` });
+  }
+};
+
+module.exports.viewProfil = async (req, res) => {
+  try {
+    let userToView = null;
+    const params = req.params;
+
+    if (isEmpty(params?.id) || !isValidObjectId(params?.id)) {
+      return res.json({ idRequired: true });
+    }
+    if (isEmpty(params?.userId) || !isValidObjectId(params?.userId)) {
+      return res.json({ userIdRequired: true });
+    }
+
+    const user = await UserModel.findById(params.id);
+    if (isEmpty(user)) {
+      return res.json({ userNotFound: true });
+    }
+
+    userToView = await UserModel.findById(params.userId);
+    if (isEmpty(userToView)) {
+      return res.json({ userToViewNotFound: true });
+    }
+
+    if (!userToView.views.includes(params.id)) {
+      userToView = await UserModel.findByIdAndUpdate(
+        params.userId,
+        { $push: { views: params.id } },
+        { new: true }
+      );
+    }
+    const { password, ...userWithoutPassword } = userToView._doc;
+
+    return res.status(200).json({ user: userWithoutPassword });
+  } catch (error) {
+    return res.status(500).json({ error: `${error.message}` });
+  }
+};
+
+module.exports.followUser = async (req, res) => {
+  try {
+    let user = {};
+    let userToFollow = {};
+    const params = req.params;
+
+    if (isEmpty(params?.id) || !isValidObjectId(params?.id)) {
+      return res.json({ idRequired: true });
+    } else if (isEmpty(params?.userId) || !isValidObjectId(params?.userId)) {
+      return res.json({ userIdRequired: true });
+    }
+
+    user = await UserModel.findById(params.id);
+    if (isEmpty(user)) {
+      return res.json({ userNotFound: true });
+    }
+
+    userToFollow = await UserModel.findById(params.userId);
+    if (isEmpty(userToFollow)) {
+      return res.json({ userToFollowNotFound: true });
+    }
+
+    if (user.rejected.includes(params.userId)) {
+      user = await UserModel.findByIdAndUpdate(
+        params.id,
+        {
+          $pull: { rejected: params.userId },
+          $push: { followed: params.userId },
+        },
+        { new: true }
+      );
+
+      userToFollow = await UserModel.findByIdAndUpdate(
+        params.userId,
+        { $push: { followers: params.userId } },
+        { new: true }
+      );
+    } else if (user.followed?.includes(params.userId)) {
+      user = await UserModel.findByIdAndUpdate(
+        params.id,
+        { $pull: { followed: params.userId } },
+        { new: true }
+      );
+
+      userToFollow = await UserModel.findByIdAndUpdate(
+        params.userId,
+        { $pull: { followers: params.userId } },
+        { new: true }
+      );
+    } else {
+      user = await UserModel.findByIdAndUpdate(
+        params.id,
+        { $push: { followed: params.userId } },
+        { new: true }
+      );
+
+      userToFollow = await UserModel.findByIdAndUpdate(
+        params.userId,
+        { $push: { followers: params.userId } },
+        { new: true }
+      );
+    }
+
+    return res.status(200).json({
+      user: { followed: user.followed },
+      userToFollow: { followers: userToFollow.followers },
+    });
+  } catch (error) {
+    return res.status(500).json({ error: `${error.message}` });
+  }
+};
+
+module.exports.rejectUser = async (req, res) => {
+  try {
+    let user = {};
+    let userToFollow = {};
+    const params = req.params;
+
+    if (isEmpty(params?.id) || !isValidObjectId(params?.id)) {
+      return res.json({ idRequired: true });
+    } else if (isEmpty(params?.userId) || !isValidObjectId(params?.userId)) {
+      return res.json({ userIdRequired: true });
+    }
+
+    user = await UserModel.findById(params.id);
+    if (isEmpty(user)) {
+      return res.json({ userNotFound: true });
+    }
+
+    userToFollow = await UserModel.findById(params.userId);
+    if (isEmpty(userToFollow)) {
+      return res.json({ userToFollowNotFound: true });
+    }
+
+    if (user.followed?.includes(params.userId)) {
+      user = await UserModel.findByIdAndUpdate(
+        params.id,
+        {
+          $pull: { followed: params.userId },
+          $push: { rejected: params.userId },
+        },
+        { new: true }
+      );
+    } else {
+      user = await UserModel.findByIdAndUpdate(
+        params.id,
+        { $push: { rejected: params.userId } },
+        { new: true }
+      );
+    }
+
+    return res.status(200).json({
+      user: { followed: user.followed, rejected: user.rejected },
+    });
+  } catch (error) {
+    return res.status(500).json({ error: `${error.message}` });
+  }
+};
+
+module.exports.editProfil = async (req, res) => {
+  try {
+    let user = null;
+    let fileName = null;
+    const body = req.body;
+    const params = req.params;
+
+    if (isEmpty(params?.id) || !isValidObjectId(params?.id)) {
+      return res.json({ idRequired: true });
+    }
+
+    user = await UserModel.findById(params.id);
+    if (isEmpty(user)) {
+      return res.status(400).json({ userNotFound: true });
+    }
+
+    if (!isEmpty(body?.name) && body?.name?.trim().length < 3) {
+      return res.status(400).json({ nameError: true });
+    }
+
+    const infos = {};
+
+    if (!isEmpty(body.name)) {
+      infos.name = body.name.trim();
+    }
+
+    if (req.file) {
+      if (
+        req.file.mimetype !== "image/jpg" &&
+        req.file.mimetype !== "image/jpeg" &&
+        req.file.mimetype !== "image/png"
+      ) {
+        return res.json({ invalidFormat: true });
+      }
+      fileName = user._id + ".jpg";
+      const filePath = path.join(__dirname, "../uploads/profile", fileName);
+      fs.writeFileSync(filePath, req.file.buffer);
+
+      infos.image = fileName;
+    }
+
+    user = await UserModel.findByIdAndUpdate(
+      params.id,
+      { $set: infos },
+      { new: true }
+    );
+
+    return res.status(200).json({ user: infos });
+  } catch (error) {
+    return res.status(500).json({ error: `${error.message}` });
+  }
+};
+
+module.exports.search = async (req, res) => {
   try {
     let user = null;
     const body = req.body;
+    const params = req.params;
 
-    if (isEmpty(body?.name) || body?.name?.trim().length < 3) {
-      return res.status(400).json({ nameError: true });
-    } else if (isEmpty(body?.username) || body?.username?.trim().length < 3) {
-      return res.status(400).json({ usernameError: true });
-    } else if (!isEmail(body?.email)) {
-      return res.status(400).json({ emailError: true });
-    } else if (isEmpty(body?.password) || body?.password?.trim().length < 6) {
-      return res.status(400).json({ passwordError: true });
+    if (isEmpty(params?.id) || !isValidObjectId(params?.id)) {
+      return res.json({ idRequired: true });
     }
 
-    user = await UserModel.findOne({ email: body.email });
-    if (!isEmpty(user)) {
-      return res.status(400).json({ userAlreadyExist: true });
+    user = await UserModel.findById(params.id);
+    if (isEmpty(user)) {
+      return res.status(400).json({ userNotFound: true });
     }
 
-    const salt = await bcrypt.genSalt();
-    const password = await bcrypt.hash(body.password, salt);
+    if (!isEmpty(body?.key) && body?.key?.trim().length < 3) {
+      return res.status(400).json({ keyError: true });
+    }
 
-    user = await UserModel.create({
-      name: body.name,
-      username: body.username,
-      email: body.email,
-      password,
-    });
+    const regex = new RegExp(body.key.trim(), "i");
 
-    return res.status(200).json({ user });
+    // Rechercher dans les collections utilisateurs, posts, et messages en parallèle
+    const [users, posts, messages] = await Promise.all([
+      UserModel.find({
+        $and: [
+          { $or: [{ name: regex }, { email: regex }] },
+          { _id: { $ne: params.id } },
+        ],
+      }),
+      PostModel.find({ $or: [{ message: regex }] }),
+      MessageModel.find({ $or: [{ message: regex }] }),
+    ]);
+
+    // Combiner les résultats
+    const results = {
+      users,
+      posts,
+      messages,
+    };
+
+    return res.status(200).json({ results });
   } catch (error) {
     return res.status(500).json({ error: `${error.message}` });
   }
