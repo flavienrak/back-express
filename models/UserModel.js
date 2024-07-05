@@ -22,6 +22,14 @@ const userSchema = new mongooose.Schema(
       type: String,
       trim: true,
     },
+    notifications: {
+      type: [String],
+      default: [],
+    },
+    messages: {
+      type: [String],
+      default: [],
+    },
     views: {
       type: [String],
       default: [],
@@ -35,6 +43,10 @@ const userSchema = new mongooose.Schema(
       default: [],
     },
     followed: {
+      type: [String],
+      default: [],
+    },
+    rejectedPost: {
       type: [String],
       default: [],
     },

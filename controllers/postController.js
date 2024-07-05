@@ -5,9 +5,21 @@ const UserModel = require("../models/UserModel");
 const PostModel = require("../models/PostModel");
 const fs = require("fs");
 const path = require("path");
+const { io } = require("../socket");
 
 module.exports.getAllPosts = async (req, res) => {
   try {
+    const params = req.params;
+
+    if (isEmpty(params?.id) || !isValidObjectId(params?.id)) {
+      return res.json({ idRequired: true });
+    }
+
+    const user = await UserModel.findById(params.id);
+    if (isEmpty(user)) {
+      return res.json({ userNotFound: true });
+    }
+
     const posts = await PostModel.find().sort({ updatedAt: -1 });
 
     // posts.forEach(async (p) => {
@@ -75,7 +87,8 @@ module.exports.getPost = async (req, res) => {
 
 module.exports.likePost = async (req, res) => {
   try {
-    let post = {};
+    let user = null;
+    let post = null;
     const params = req.params;
 
     if (isEmpty(params?.id) || !isValidObjectId(params?.id)) {
@@ -84,35 +97,43 @@ module.exports.likePost = async (req, res) => {
       return res.json({ postIdRequired: true });
     }
 
-    const user = await UserModel.findById(params.id);
+    user = await UserModel.findById(params.id);
     if (isEmpty(user)) {
       return res.json({ userNotFound: true });
     }
 
     post = await PostModel.findById(params.postId);
     if (isEmpty(post)) {
-      return res.json({ postdotFount: true });
+      return res.json({ postNotFound: true });
     }
 
-    if (post.likes?.includes(params.id)) {
+    if (post.likes.includes(params.id)) {
       post = await PostModel.findByIdAndUpdate(
         params.postId,
-        {
-          $pull: { likes: user._id },
-        },
+        { $pull: { likes: params.id } },
         { new: true }
       );
     } else {
       post = await PostModel.findByIdAndUpdate(
         params.postId,
-        {
-          $addToSet: { likes: user._id },
-        },
+        { $addToSet: { likes: params.id } },
         { new: true }
       );
     }
 
-    return res.status(200).json({ post });
+    if (user.rejectedPost.includes(params.postId)) {
+      user = await UserModel.findByIdAndUpdate(
+        params.id,
+        { $pull: { rejectedPost: params.postId } },
+        { new: true }
+      );
+    }
+
+    io.emit("likePost", post);
+
+    return res
+      .status(200)
+      .json({ post, user: { rejectedPost: user.rejectedPost } });
   } catch (error) {
     return res.status(500).json({ error: `${error.message}` });
   }
@@ -137,7 +158,7 @@ module.exports.commentPost = async (req, res) => {
 
     post = await PostModel.findById(params.postId);
     if (isEmpty(post)) {
-      return res.json({ postdotFount: true });
+      return res.json({ postNotFound: true });
     }
 
     if (isEmpty(body?.comment)) {
@@ -152,13 +173,23 @@ module.exports.commentPost = async (req, res) => {
 
     post = await PostModel.findByIdAndUpdate(
       params.postId,
-      {
-        $addToSet: { comments: infos },
-      },
+      { $addToSet: { comments: infos } },
       { new: true }
     );
 
-    return res.status(200).json({ post });
+    if (user.rejectedPost.includes(params.postId)) {
+      user = await UserModel.findByIdAndUpdate(
+        params.id,
+        { $pull: { rejectedPost: params.postId } },
+        { new: true }
+      );
+    }
+
+    io.emit("commentPost", post);
+
+    return res
+      .status(200)
+      .json({ post, user: { rejectedPost: user.rejectedPost } });
   } catch (error) {
     return res.status(500).json({ error: `${error.message}` });
   }
@@ -166,8 +197,18 @@ module.exports.commentPost = async (req, res) => {
 
 module.exports.deleteComment = async (req, res) => {
   try {
-    let post = {};
+    let user = null;
+    let post = null;
     const params = req.params;
+
+    if (isEmpty(params?.id) || !isValidObjectId(params?.id)) {
+      return res.json({ idRequired: true });
+    }
+
+    user = await UserModel.findById(params.id);
+    if (isEmpty(user)) {
+      return res.json({ userNotFound: true });
+    }
 
     if (isEmpty(params?.postId) || !isValidObjectId(params?.postId)) {
       return res.json({ postIdRequired: true });
@@ -180,18 +221,28 @@ module.exports.deleteComment = async (req, res) => {
 
     post = await PostModel.findById(params.postId);
     if (isEmpty(post)) {
-      return res.json({ postdotFount: true });
+      return res.json({ postNotFound: true });
     }
 
     post = await PostModel.findByIdAndUpdate(
       params.postId,
-      {
-        $pull: { comments: { _id: params.commentId } },
-      },
+      { $pull: { comments: { _id: params.commentId } } },
       { new: true }
     );
 
-    return res.status(200).json({ post });
+    if (user.rejectedPost.includes(params.postId)) {
+      user = await UserModel.findByIdAndUpdate(
+        params.id,
+        { $pull: { rejectedPost: params.postId } },
+        { new: true }
+      );
+    }
+
+    io.emit("deleteCommentPost", post);
+
+    return res
+      .status(200)
+      .json({ post, user: { rejectedPost: user.rejectedPost } });
   } catch (error) {
     return res.status(500).json({ error: `${error.message}` });
   }
@@ -247,7 +298,46 @@ module.exports.createPost = async (req, res) => {
       { new: true }
     );
 
+    io.emit("createPost", post);
+
     return res.status(200).json({ post });
+  } catch (error) {
+    return res.status(500).json({ error: `${error.message}` });
+  }
+};
+
+module.exports.rejectPost = async (req, res) => {
+  try {
+    let user = null;
+    const params = req.params;
+
+    if (isEmpty(params?.id) || !isValidObjectId(params?.id)) {
+      return res.json({ idRequired: true });
+    }
+
+    user = await UserModel.findById(params.id);
+    if (isEmpty(user)) {
+      return res.json({ userNotFound: true });
+    }
+
+    if (isEmpty(params?.postId) || !isValidObjectId(params?.postId)) {
+      return res.json({ postIdRequired: true });
+    }
+
+    const post = await PostModel.findById(params.postId);
+
+    if (isEmpty(post)) {
+      return res.json({ postNotFound: true });
+    }
+    user = await UserModel.findByIdAndUpdate(
+      params.id,
+      { $push: { rejectedPost: params.postId } },
+      { new: true }
+    );
+
+    return res
+      .status(200)
+      .json({ post, user: { rejectedPost: user.rejectedPost } });
   } catch (error) {
     return res.status(500).json({ error: `${error.message}` });
   }

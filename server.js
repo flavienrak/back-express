@@ -1,6 +1,8 @@
 const express = require("express");
-const cors = require("cors");
 const path = require("path");
+const dotenv = require("dotenv");
+
+const { app, server } = require("./socket");
 
 const authRoutes = require("./routes/authRoutes");
 const userRoutes = require("./routes/userRoutes");
@@ -8,14 +10,8 @@ const postRoutes = require("./routes/postRoutes");
 const tokenRoutes = require("./routes/tokenRoutes");
 const messageRoutes = require("./routes/messageRoutes");
 
-require("dotenv").config({ path: "./.env" });
+dotenv.config();
 require("./config/db");
-
-const port = process.env.PORT;
-const app = express();
-
-app.use(cors());
-app.use(express.json());
 
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
@@ -29,4 +25,5 @@ app.get("/", (req, res) => {
   return res.json("Welcome to express!");
 });
 
-app.listen(port, () => console.log(`App runing at: ${port}`));
+const port = process.env.PORT;
+server.listen(port, () => console.log(`App runing at: ${port}`));

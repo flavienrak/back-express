@@ -6,11 +6,12 @@ const fs = require("fs");
 const path = require("path");
 const PostModel = require("../models/PostModel");
 const MessageModel = require("../models/MessageModel");
+const { getReceiverSocketId, io } = require("../socket");
 
 module.exports.getUsers = async (req, res) => {
   try {
     const params = req.params;
-    if (isEmpty(params?.id)) {
+    if (isEmpty(params?.id) || !isValidObjectId(params?.id)) {
       return res.json({ idRequired: true });
     }
 
@@ -23,6 +24,24 @@ module.exports.getUsers = async (req, res) => {
       .select("-password")
       .sort({ createdAt: -1 });
 
+    // users.forEach(async (item) => {
+    //   if (item.followed.includes(item._id)) {
+    //     await UserModel.findByIdAndUpdate(
+    //       item._id,
+    //       { $pull: { followed: item._id } },
+    //       { new: true }
+    //     );
+    //   }
+    //   if (item.followers.includes(item._id)) {
+    //     console.log("removed to followers");
+    //     await UserModel.findByIdAndUpdate(
+    //       item._id,
+    //       { $pull: { followers: item._id } },
+    //       { new: true }
+    //     );
+    //   }
+    // });
+
     return res.status(200).json({ users });
   } catch (error) {
     return res.status(500).json({ error: `${error.message}` });
@@ -32,11 +51,15 @@ module.exports.getUsers = async (req, res) => {
 module.exports.getUser = async (req, res) => {
   try {
     const params = req.params;
-    if (isEmpty(params?.id)) {
+    if (isEmpty(params?.id) || !isValidObjectId(params?.id)) {
       return res.json({ idRequired: true });
     }
 
     const user = await UserModel.findById(params.id);
+    if (isEmpty(user)) {
+      return res.json({ userNotFound: true });
+    }
+
     const { password, ...userWithoutPassword } = user._doc;
 
     return res.status(200).json({ user: userWithoutPassword });
@@ -116,7 +139,7 @@ module.exports.followUser = async (req, res) => {
 
       userToFollow = await UserModel.findByIdAndUpdate(
         params.userId,
-        { $push: { followers: params.userId } },
+        { $push: { followers: params.id } },
         { new: true }
       );
     } else if (user.followed?.includes(params.userId)) {
@@ -128,7 +151,7 @@ module.exports.followUser = async (req, res) => {
 
       userToFollow = await UserModel.findByIdAndUpdate(
         params.userId,
-        { $pull: { followers: params.userId } },
+        { $pull: { followers: params.id } },
         { new: true }
       );
     } else {
@@ -140,14 +163,18 @@ module.exports.followUser = async (req, res) => {
 
       userToFollow = await UserModel.findByIdAndUpdate(
         params.userId,
-        { $push: { followers: params.userId } },
+        { $push: { followers: params.id } },
         { new: true }
       );
     }
 
+    const receiverSocketId = getReceiverSocketId(params.userId);
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit("followed", userToFollow.followers);
+    }
+
     return res.status(200).json({
       user: { followed: user.followed },
-      userToFollow: { followers: userToFollow.followers },
     });
   } catch (error) {
     return res.status(500).json({ error: `${error.message}` });
@@ -282,9 +309,9 @@ module.exports.search = async (req, res) => {
           { $or: [{ name: regex }, { email: regex }] },
           { _id: { $ne: params.id } },
         ],
-      }),
-      PostModel.find({ $or: [{ message: regex }] }),
-      MessageModel.find({ $or: [{ message: regex }] }),
+      }).sort({ updatedAt: -1 }),
+      PostModel.find({ $or: [{ message: regex }] }).sort({ updatedAt: -1 }),
+      MessageModel.find({ $or: [{ message: regex }] }).sort({ updatedAt: -1 }),
     ]);
 
     // Combiner les résultats
