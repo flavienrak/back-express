@@ -82,13 +82,17 @@ module.exports.viewAllMessages = async (req, res) => {
       receiverId: params.id,
     });
 
-    messages.forEach(async (item) => {
-      await MessageModel.findByIdAndUpdate(
-        item._id,
-        { $set: { viewed: true } },
-        { new: true }
-      );
-    });
+    if (!isEmpty(messages)) {
+      for (const item of messages) {
+        if (item && item._id) {
+          await MessageModel.findByIdAndUpdate(
+            item._id,
+            { $set: { viewed: true } },
+            { new: true }
+          );
+        }
+      }
+    }
 
     const receiverSocketId = getReceiverSocketId(params.userId);
 

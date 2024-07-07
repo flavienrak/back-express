@@ -43,7 +43,12 @@ module.exports.viewAll = async (req, res) => {
       {
         userId: params.id,
         viewed: false,
-        $or: [{ liked: true }, { commented: true }, { followed: true }],
+        $or: [
+          { liked: true },
+          { commented: true },
+          { followed: true },
+          { newPostFollowed: true },
+        ],
       },
       { $set: { viewed: true } },
       { new: true, multi: true }
@@ -51,7 +56,12 @@ module.exports.viewAll = async (req, res) => {
 
     notifications = await NotificationModel.find({
       userId: params.id,
-      $or: [{ liked: true }, { commented: true }, { followed: true }],
+      $or: [
+        { liked: true },
+        { commented: true },
+        { followed: true },
+        { newPostFollowed: true },
+      ],
     });
 
     return res.status(200).json({ notifications });

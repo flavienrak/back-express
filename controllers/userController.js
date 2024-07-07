@@ -81,6 +81,12 @@ module.exports.viewProfil = async (req, res) => {
         { new: true }
       );
     }
+
+    const receiverSocketId = getReceiverSocketId(params.userId);
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit("viewProfil", userToView.views);
+    }
+
     const { password, ...userWithoutPassword } = userToView._doc;
 
     return res.status(200).json({ user: userWithoutPassword });
@@ -115,9 +121,9 @@ module.exports.followUser = async (req, res) => {
     const receiverSocketId = getReceiverSocketId(params.userId);
 
     notification = await NotificationModel.findOne({
-      userId: params.id,
-      senderId: params.userId,
-      follow: true,
+      userId: params.userId,
+      senderId: params.id,
+      followed: true,
     });
 
     if (user.rejected.includes(params.userId)) {
@@ -136,18 +142,19 @@ module.exports.followUser = async (req, res) => {
         { new: true }
       );
 
-      if (!notification) {
-        notification = await NotificationModel.create({
-          userId: params.id,
-          senderId: params.userId,
-          followed: true,
-        });
-      } else {
+      if (notification) {
         notification = await NotificationModel.findByIdAndUpdate(
           notification._id,
           { $set: { viewed: false } },
           { new: true }
         );
+      } else {
+        notification = await NotificationModel.create({
+          userId: params.userId,
+          senderId: params.id,
+          followed: true,
+          viewed: false,
+        });
       }
 
       if (receiverSocketId) {
@@ -202,9 +209,10 @@ module.exports.followUser = async (req, res) => {
         );
       } else {
         notification = await NotificationModel.create({
-          userId: params.id,
-          senderId: params.userId,
+          userId: params.userId,
+          senderId: params.id,
           followed: true,
+          viewed: false,
         });
       }
 
@@ -345,21 +353,56 @@ module.exports.search = async (req, res) => {
 
     const regex = new RegExp(body.key.trim(), "i");
 
-    const [users, posts, messages] = await Promise.all([
+    const messages = await MessageModel.find({
+      $or: [{ message: regex }],
+    }).sort({ updatedAt: -1 });
+
+    const groupedMessages = messages.reduce((acc, message) => {
+      const otherUserId =
+        message.senderId === params.id ? message.receiverId : message.senderId;
+      if (!acc[otherUserId]) {
+        acc[otherUserId] = [];
+      }
+      acc[otherUserId].push(message);
+      return acc;
+    }, {});
+
+    let result = Object.keys(groupedMessages).map((key) => ({
+      userId: key,
+      messages: groupedMessages[key],
+    }));
+
+    const getLastMessageUpdatedAt = (messages) => {
+      if (messages.length === 0) {
+        return null;
+      }
+      return new Date(messages[messages.length - 1].updatedAt);
+    };
+
+    result.sort((a, b) => {
+      const lastMessageDateA = getLastMessageUpdatedAt(a.messages);
+      const lastMessageDateB = getLastMessageUpdatedAt(b.messages);
+      return lastMessageDateB - lastMessageDateA;
+    });
+
+    const [users, posts] = await Promise.all([
       UserModel.find({
         $and: [
           { $or: [{ name: regex }, { email: regex }] },
           { _id: { $ne: params.id } },
         ],
-      }).sort({ updatedAt: -1 }),
-      PostModel.find({ $or: [{ message: regex }] }).sort({ updatedAt: -1 }),
-      MessageModel.find({ $or: [{ message: regex }] }).sort({ updatedAt: -1 }),
+      })
+        .sort({ updatedAt: -1 })
+        .lean(),
+      PostModel.find({ $or: [{ message: regex }] })
+        .sort({ updatedAt: -1 })
+        .lean(),
     ]);
 
     const results = {
       users,
       posts,
-      messages,
+      messages: result,
     };
 
     return res.status(200).json({ results });

@@ -1,27 +1,49 @@
+const UserModel = require("../models/UserModel");
+const PostModel = require("../models/PostModel");
+const NotificationModel = require("../models/NotificationModel");
+
+const fs = require("fs");
+const path = require("path");
+
 const { isEmpty } = require("../lib/allFunctions");
 const { isValidObjectId } = require("mongoose");
 const { io, getReceiverSocketId } = require("../socket");
 
-const UserModel = require("../models/UserModel");
-const PostModel = require("../models/PostModel");
-const fs = require("fs");
-const path = require("path");
-const NotificationModel = require("../models/NotificationModel");
-
 module.exports.getAllPosts = async (req, res) => {
   try {
+    let user = null;
     const params = req.params;
 
     if (isEmpty(params?.id) || !isValidObjectId(params?.id)) {
       return res.json({ idRequired: true });
     }
 
-    const user = await UserModel.findById(params.id);
+    user = await UserModel.findById(params.id);
     if (isEmpty(user)) {
       return res.json({ userNotFound: true });
     }
 
     const posts = await PostModel.find().sort({ updatedAt: -1 });
+    // const users = await UserModel.find();
+
+    // if (!isEmpty(posts) && !isEmpty(users)) {
+    //   for (const item of posts) {
+    //     for (const us of users) {
+    //       if (item && us) {
+    //         if (
+    //           item.senderId === us._id.toString() &&
+    //           !us.posts?.includes(item._id.toString())
+    //         ) {
+    //           await UserModel.findByIdAndUpdate(
+    //             us._id,
+    //             { $push: { posts: item._id } },
+    //             { new: true }
+    //           );
+    //         }
+    //       }
+    //     }
+    //   }
+    // }
 
     return res.status(200).json({ posts });
   } catch (error) {
@@ -131,7 +153,12 @@ module.exports.likePost = async (req, res) => {
 
         if (notification) {
           await NotificationModel.findByIdAndDelete(notification._id);
-          io.to(receiverSocketId).emit("unlikePostNotification", notification);
+          if (receiverSocketId) {
+            io.to(receiverSocketId).emit(
+              "unlikePostNotification",
+              notification
+            );
+          }
         }
       }
 
@@ -166,7 +193,9 @@ module.exports.likePost = async (req, res) => {
           });
         }
 
-        io.to(receiverSocketId).emit("likePostNotification", notification);
+        if (receiverSocketId) {
+          io.to(receiverSocketId).emit("likePostNotification", notification);
+        }
       }
 
       io.emit("likePost", post);
@@ -269,7 +298,9 @@ module.exports.commentPost = async (req, res) => {
         }
       }
 
-      io.to(receiverSocketId).emit("commentPostNotification", notification);
+      if (receiverSocketId) {
+        io.to(receiverSocketId).emit("commentPostNotification", notification);
+      }
     }
     io.emit("commentPost", post);
 
@@ -344,6 +375,9 @@ module.exports.deleteComment = async (req, res) => {
           notification = await NotificationModel.findByIdAndDelete(
             notification._id
           );
+        }
+
+        if (receiverSocketId) {
           io.to(receiverSocketId).emit(
             "deleteCommentPostNotification",
             notification
@@ -421,19 +455,45 @@ module.exports.createPost = async (req, res) => {
       { new: true }
     );
 
-    users = await UserModel.find({ _id: { $ne: params.id } });
-    users.forEach(async (item) => {
-      const receiverSocketId = getReceiverSocketId(item._id);
-      const notification = await NotificationModel.create({
-        userId: item._id,
-        senderId: params.id,
-        postId: params.postId,
-        newPost: true,
-        viewed: false,
-      });
+    if (!isEmpty(user.followers)) {
+      for (const item of user.followers) {
+        if (item) {
+          const receiverSocketId = getReceiverSocketId(item);
+          const notification = await NotificationModel.create({
+            userId: item,
+            senderId: params.id,
+            postId: post._id,
+            newPostFollowed: true,
+            viewed: false,
+          });
 
-      io.to(receiverSocketId).emit("createPost", notification);
-    });
+          if (notification && receiverSocketId) {
+            io.to(receiverSocketId).emit("newPostFollowed", notification);
+          }
+        }
+      }
+    }
+
+    users = await UserModel.find({ _id: { $ne: params.id } });
+
+    if (!isEmpty(users)) {
+      for (const item of users) {
+        if (item && item._id) {
+          const receiverSocketId = getReceiverSocketId(item._id.toString());
+          const notification = await NotificationModel.create({
+            userId: item._id.toString(),
+            senderId: params.id,
+            postId: post._id,
+            newPost: true,
+            viewed: false,
+          });
+
+          if (notification && receiverSocketId) {
+            io.to(receiverSocketId).emit("createPost", notification);
+          }
+        }
+      }
+    }
 
     return res.status(200).json({ post });
   } catch (error) {
@@ -446,7 +506,7 @@ module.exports.editPost = async (req, res) => {
     let fileName = null;
     let user = null;
     let post = null;
-    let users = null;
+    // let users = null;
     const params = req.params;
     const body = req.body;
 
@@ -505,34 +565,41 @@ module.exports.editPost = async (req, res) => {
       { new: true }
     );
 
-    users = await UserModel.find({ _id: { $ne: params.id } });
-    users.forEach(async (item) => {
-      const receiverSocketId = getReceiverSocketId(item._id);
-      let notification = await NotificationModel.findOne({
-        userId: item._id,
-        senderId: params.id,
-        postId: params.postId,
-        editPost: true,
-      });
+    // users = await UserModel.find({ _id: { $ne: params.id } });
 
-      if (notification) {
-        notification = await NotificationModel.findByIdAndUpdate(
-          notification._id,
-          { $set: { viewed: false } },
-          { new: true }
-        );
-      } else {
-        notification = await NotificationModel.create({
-          userId: item._id,
-          senderId: params.id,
-          postId: params.postId,
-          editPost: true,
-          viewed: false,
-        });
-      }
+    // if (!isEmpty(users)) {
+    //   for (const item of users) {
+    //     if (item && item._id) {
+    //       const receiverSocketId = getReceiverSocketId(item._id.toString());
+    //       let notification = await NotificationModel.findOne({
+    //         userId: item._id.toString(),
+    //         senderId: params.id,
+    //         postId: params.postId,
+    //         editPost: true,
+    //       });
 
-      io.to(receiverSocketId).emit("editPostNotification", notification);
-    });
+    //       if (notification) {
+    //         notification = await NotificationModel.findByIdAndUpdate(
+    //           notification._id,
+    //           { $set: { viewed: false } },
+    //           { new: true }
+    //         );
+    //       } else {
+    //         notification = await NotificationModel.create({
+    //           userId: item._id,
+    //           senderId: params.id,
+    //           postId: params.postId,
+    //           editPost: true,
+    //           viewed: false,
+    //         });
+    //       }
+
+    //       if (receiverSocketId) {
+    //         io.to(receiverSocketId).emit("editPostNotification", notification);
+    //       }
+    //     }
+    //   }
+    // }
 
     io.emit("editPost", post);
 
@@ -581,14 +648,16 @@ module.exports.rejectPost = async (req, res) => {
 
 module.exports.deletePost = async (req, res) => {
   try {
-    let post = {};
+    let post = null;
+    let users = null;
+    let user = null;
     const params = req.params;
 
     if (isEmpty(params?.id) || !isValidObjectId(params?.id)) {
       return res.json({ idRequired: true });
     }
 
-    const user = await UserModel.findById(params.id);
+    user = await UserModel.findById(params.id);
     if (isEmpty(user)) {
       return res.json({ userNotFound: true });
     }
@@ -613,6 +682,34 @@ module.exports.deletePost = async (req, res) => {
     }
 
     post = await PostModel.findByIdAndDelete(params.postId);
+    user = await UserModel.findByIdAndUpdate(
+      params.id,
+      { $pull: { posts: params.postId } },
+      { new: true }
+    );
+
+    users = await UserModel.find({ _id: { $ne: params.id } });
+
+    if (!isEmpty(users)) {
+      for (const item of users) {
+        if (item && item._id) {
+          const receiverSocketId = getReceiverSocketId(item._id.toString());
+          const notification = await NotificationModel.findOne({
+            userId: item._id.toString(),
+            senderId: params.id,
+            postId: params.postId,
+            newPost: true,
+          });
+
+          if (notification && receiverSocketId) {
+            io.to(receiverSocketId).emit(
+              "deletePostNotification",
+              notification
+            );
+          }
+        }
+      }
+    }
 
     io.emit("deletePost", post);
 

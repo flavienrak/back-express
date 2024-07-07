@@ -26,6 +26,10 @@ const notificationSchema = new mongooose.Schema(
       type: Boolean,
       default: false,
     },
+    newPostFollowed: {
+      type: Boolean,
+      default: false,
+    },
     editPost: {
       type: Boolean,
       default: false,
