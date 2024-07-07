@@ -17,6 +17,10 @@ const messageSchema = new mongooose.Schema(
       trim: true,
       required: true,
     },
+    viewed: {
+      type: Boolean,
+      default: false,
+    },
     status: {
       type: String,
       default: "sending",

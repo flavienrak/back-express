@@ -9,6 +9,7 @@ const userRoutes = require("./routes/userRoutes");
 const postRoutes = require("./routes/postRoutes");
 const tokenRoutes = require("./routes/tokenRoutes");
 const messageRoutes = require("./routes/messageRoutes");
+const notificationRoutes = require("./routes/notificationRoutes");
 
 dotenv.config();
 require("./config/db");
@@ -20,6 +21,7 @@ app.use("/api/user", userRoutes);
 app.use("/api/post", postRoutes);
 app.use("/api/token", tokenRoutes);
 app.use("/api/message", messageRoutes);
+app.use("/api/notification", notificationRoutes);
 
 app.get("/", (req, res) => {
   return res.json("Welcome to express!");

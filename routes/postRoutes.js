@@ -20,5 +20,10 @@ router.post(
   upload.single("file"),
   postController.createPost
 );
+router.post(
+  "/:id/:postId/edit-post",
+  upload.single("file"),
+  postController.editPost
+);
 
 module.exports = router;

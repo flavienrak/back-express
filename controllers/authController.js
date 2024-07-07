@@ -1,10 +1,12 @@
-const { isEmpty } = require("../lib/allFunctions");
-const { isEmail } = require("validator");
+const dotenv = require("dotenv");
+dotenv.config();
 
 const bcrypt = require("bcrypt");
 const UserModel = require("../models/UserModel");
 const jwt = require("jsonwebtoken");
-require("dotenv").config({ path: "./.env" });
+
+const { isEmpty } = require("../lib/allFunctions");
+const { isEmail } = require("validator");
 
 const key = process.env.JWT_SECRET;
 

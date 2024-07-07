@@ -1,8 +1,10 @@
-const { isEmpty } = require("../lib/allFunctions");
+const dotenv = require("dotenv");
+dotenv.config();
 
 const UserModel = require("../models/UserModel");
 const jwt = require("jsonwebtoken");
-require("dotenv").config({ path: "./.env" });
+
+const { isEmpty } = require("../lib/allFunctions");
 
 const key = process.env.JWT_SECRET;
 

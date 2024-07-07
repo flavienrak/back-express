@@ -1,11 +1,13 @@
-const { isEmpty } = require("../lib/allFunctions");
-const { isValidObjectId } = require("mongoose");
-
 const UserModel = require("../models/UserModel");
-const fs = require("fs");
-const path = require("path");
 const PostModel = require("../models/PostModel");
 const MessageModel = require("../models/MessageModel");
+const NotificationModel = require("../models/NotificationModel");
+
+const fs = require("fs");
+const path = require("path");
+
+const { isEmpty } = require("../lib/allFunctions");
+const { isValidObjectId } = require("mongoose");
 const { getReceiverSocketId, io } = require("../socket");
 
 module.exports.getUsers = async (req, res) => {
@@ -23,24 +25,6 @@ module.exports.getUsers = async (req, res) => {
     const users = await UserModel.find()
       .select("-password")
       .sort({ createdAt: -1 });
-
-    // users.forEach(async (item) => {
-    //   if (item.followed.includes(item._id)) {
-    //     await UserModel.findByIdAndUpdate(
-    //       item._id,
-    //       { $pull: { followed: item._id } },
-    //       { new: true }
-    //     );
-    //   }
-    //   if (item.followers.includes(item._id)) {
-    //     console.log("removed to followers");
-    //     await UserModel.findByIdAndUpdate(
-    //       item._id,
-    //       { $pull: { followers: item._id } },
-    //       { new: true }
-    //     );
-    //   }
-    // });
 
     return res.status(200).json({ users });
   } catch (error) {
@@ -107,8 +91,9 @@ module.exports.viewProfil = async (req, res) => {
 
 module.exports.followUser = async (req, res) => {
   try {
-    let user = {};
-    let userToFollow = {};
+    let user = null;
+    let userToFollow = null;
+    let notification = null;
     const params = req.params;
 
     if (isEmpty(params?.id) || !isValidObjectId(params?.id)) {
@@ -127,6 +112,14 @@ module.exports.followUser = async (req, res) => {
       return res.json({ userToFollowNotFound: true });
     }
 
+    const receiverSocketId = getReceiverSocketId(params.userId);
+
+    notification = await NotificationModel.findOne({
+      userId: params.id,
+      senderId: params.userId,
+      follow: true,
+    });
+
     if (user.rejected.includes(params.userId)) {
       user = await UserModel.findByIdAndUpdate(
         params.id,
@@ -142,6 +135,27 @@ module.exports.followUser = async (req, res) => {
         { $push: { followers: params.id } },
         { new: true }
       );
+
+      if (!notification) {
+        notification = await NotificationModel.create({
+          userId: params.id,
+          senderId: params.userId,
+          followed: true,
+        });
+      } else {
+        notification = await NotificationModel.findByIdAndUpdate(
+          notification._id,
+          { $set: { viewed: false } },
+          { new: true }
+        );
+      }
+
+      if (receiverSocketId) {
+        io.to(receiverSocketId).emit("followed", {
+          followers: userToFollow.followers,
+          notification,
+        });
+      }
     } else if (user.followed?.includes(params.userId)) {
       user = await UserModel.findByIdAndUpdate(
         params.id,
@@ -154,6 +168,19 @@ module.exports.followUser = async (req, res) => {
         { $pull: { followers: params.id } },
         { new: true }
       );
+
+      if (notification) {
+        notification = await NotificationModel.findByIdAndDelete(
+          notification._id
+        );
+
+        if (receiverSocketId) {
+          io.to(receiverSocketId).emit("unfollowed", {
+            followers: userToFollow.followers,
+            notification,
+          });
+        }
+      }
     } else {
       user = await UserModel.findByIdAndUpdate(
         params.id,
@@ -166,11 +193,27 @@ module.exports.followUser = async (req, res) => {
         { $push: { followers: params.id } },
         { new: true }
       );
-    }
 
-    const receiverSocketId = getReceiverSocketId(params.userId);
-    if (receiverSocketId) {
-      io.to(receiverSocketId).emit("followed", userToFollow.followers);
+      if (notification) {
+        notification = await NotificationModel.findByIdAndUpdate(
+          notification._id,
+          { $set: { viewed: false } },
+          { new: true }
+        );
+      } else {
+        notification = await NotificationModel.create({
+          userId: params.id,
+          senderId: params.userId,
+          followed: true,
+        });
+      }
+
+      if (receiverSocketId) {
+        io.to(receiverSocketId).emit("followed", {
+          followers: userToFollow.followers,
+          notification,
+        });
+      }
     }
 
     return res.status(200).json({
@@ -302,7 +345,6 @@ module.exports.search = async (req, res) => {
 
     const regex = new RegExp(body.key.trim(), "i");
 
-    // Rechercher dans les collections utilisateurs, posts, et messages en parallèle
     const [users, posts, messages] = await Promise.all([
       UserModel.find({
         $and: [
@@ -314,7 +356,6 @@ module.exports.search = async (req, res) => {
       MessageModel.find({ $or: [{ message: regex }] }).sort({ updatedAt: -1 }),
     ]);
 
-    // Combiner les résultats
     const results = {
       users,
       posts,

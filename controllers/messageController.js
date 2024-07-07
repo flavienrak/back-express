@@ -1,8 +1,9 @@
-const { isValidObjectId } = require("mongoose");
-const { isEmpty } = require("../lib/allFunctions");
-
 const MessageModel = require("../models/MessageModel");
 const UserModel = require("../models/UserModel");
+const NotificationModel = require("../models/NotificationModel");
+
+const { isValidObjectId } = require("mongoose");
+const { isEmpty } = require("../lib/allFunctions");
 const { getReceiverSocketId, io } = require("../socket");
 
 module.exports.getMessages = async (req, res) => {
@@ -55,6 +56,55 @@ module.exports.getMessages = async (req, res) => {
   }
 };
 
+module.exports.viewAllMessages = async (req, res) => {
+  try {
+    let messages = null;
+    const params = req.params;
+
+    if (isEmpty(params?.id) || !isValidObjectId(params?.id)) {
+      return res.json({ idRequired: true });
+    } else if (isEmpty(params?.userId) || !isValidObjectId(params?.userId)) {
+      return res.json({ userIdRequired: true });
+    }
+
+    const user = await UserModel.findById(params.id);
+    if (isEmpty(user)) {
+      return res.json({ userNotFound: true });
+    }
+
+    const receiver = await UserModel.findById(params.userId);
+    if (isEmpty(receiver)) {
+      return res.json({ receiverNotFound: true });
+    }
+
+    messages = await MessageModel.find({
+      senderId: params.userId,
+      receiverId: params.id,
+    });
+
+    messages.forEach(async (item) => {
+      await MessageModel.findByIdAndUpdate(
+        item._id,
+        { $set: { viewed: true } },
+        { new: true }
+      );
+    });
+
+    const receiverSocketId = getReceiverSocketId(params.userId);
+
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit("viewMessages", {
+        messages,
+        userId: params.id,
+      });
+    }
+
+    return res.status(200).json({ messages });
+  } catch (error) {
+    return res.status(500).json({ error: `${error.message}` });
+  }
+};
+
 module.exports.sendMessage = async (req, res) => {
   try {
     const params = req.params;
@@ -86,12 +136,35 @@ module.exports.sendMessage = async (req, res) => {
       senderId: params.id,
       receiverId: params.userId,
       message: body.message.trim(),
+      viewed: false,
     });
 
     const receiverSocketId = getReceiverSocketId(params.userId);
     if (receiverSocketId) {
+      let notification = await NotificationModel.findOne({
+        userId: params.userId,
+        senderId: params.id,
+        newMessage: true,
+      });
+
+      if (notification) {
+        notification = await NotificationModel.findByIdAndUpdate(
+          notification._id,
+          { $set: { viewed: false } },
+          { new: true }
+        );
+      } else {
+        notification = await NotificationModel.create({
+          userId: params.userId,
+          senderId: params.id,
+          newMessage: true,
+          viewed: false,
+        });
+      }
+
       io.to(receiverSocketId).emit("newMessage", {
         message,
+        notification,
         userId: params.id,
       });
     }
