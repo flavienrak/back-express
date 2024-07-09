@@ -650,6 +650,7 @@ module.exports.deletePost = async (req, res) => {
   try {
     let post = null;
     let users = null;
+    let notifications = null;
     let user = null;
     const params = req.params;
 
@@ -710,6 +711,10 @@ module.exports.deletePost = async (req, res) => {
         }
       }
     }
+
+    notifications = await NotificationModel.deleteMany({
+      postId: params.postId,
+    });
 
     io.emit("deletePost", post);
 
